@@ -24,13 +24,11 @@
 	import flash.utils.ByteArray;
 	import flash.utils.Dictionary;
 	import flash.utils.Timer;
-	import flash.utils.getTimer;
 	
 	import com.imvu.widget.ClientWidget;
 	import com.imvu.events.WidgetEvent;
 	import com.imvu.events.WidgetEventData;
 	import com.imvu.widget.WidgetAsset;
-	
 	
 	public class Main extends ClientWidget {
 		
@@ -41,14 +39,14 @@
 		
 		public var currBytes:ByteArray = new ByteArray();
 		public var soundBytes:ByteArray = new ByteArray();
-		//public var byteString:String = "";
 		
 		public var encoder:Array;
 		public var decoder:Object;
 		
-		public var time:Number;
-		public var timer:Timer;
-		public var timerInterval:Number = 300;
+		public var isSending:Boolean = false;
+		public var sendAudioTimer:Timer;
+		public var sendAudioInterval:Number = 300;		
+		public var guestInterval:Number = 1000;
 		
 		public var cycle:int = 0;
 		
@@ -60,9 +58,6 @@
 		public var availablePosns:Array = new Array();
 		
 		public var leftPadding:int = 20;
-		
-		public var debugBool:Boolean = false;
-		public var debugIterations:int = 0;
 		
 		public function initWidget():void {
 			for (var i:int = 0; i < 20; i++) {
@@ -85,17 +80,6 @@
 			
 			this.addEventListener("updateGuest", guestHandler);
 			this.addEventListener("playSound", streamingHandler);
-			
-			//addOther();
-		}
-		
-		public function addOther():void {
-			var ii:int = -7
-			var kk:Number = ii / 100;
-			trace((ii / 100));
-/*			var b:ByteArray = new ByteArray();
-			b.writeUTFBytes("♫");
-			trace(b.length);*/
 		}
 		
 		public function startRecording(event:MouseEvent):void {
@@ -107,10 +91,9 @@
 				mic.addEventListener(SampleDataEvent.SAMPLE_DATA, micAudioHandler);
 				mic.addEventListener(ActivityEvent.ACTIVITY, micActivityHandler);
 				mic.addEventListener(StatusEvent.STATUS, micSetupHandler);
-				//time = getTimer();
-				timer = new Timer(this.timerInterval, 0);
-				timer.addEventListener(TimerEvent.TIMER, micTimerHandler);
-				timer.start();
+				sendAudioTimer = new Timer(this.sendAudioInterval, 0);
+				sendAudioTimer.addEventListener(TimerEvent.TIMER, sendAudio);
+				sendAudioTimer.start();
 			} else {
 				micEnabled = false;
 			}
@@ -127,10 +110,8 @@
 		public function micAudioHandler(event:SampleDataEvent): void {
 			var sample:Number = 0.0;
 			while (event.data.bytesAvailable) {
-				//cycle++;
 				sample = event.data.readFloat();
 				currBytes.writeFloat(sample);
-				//byteString = byteString + sample.toFixed(2) + ",";
 			}
 		}
 		
@@ -138,64 +119,13 @@
 			this.fireRemoteEvent("updateGuest", event.activating);
 		}
 		
-		public function micTimerHandler(event:TimerEvent): void {
+		public function sendAudio(event:TimerEvent): void {
 			if ((currBytes.length > 0) && (currBytes.length < 8193)) {
-				var isSending:Boolean = false;
-				var rawBytes:ByteArray = currBytes;
-				currBytes = new ByteArray();
-				rawBytes.position = 0;
-				var byteString:String = "";
-				var lastInt:int = 101;
-				while (rawBytes.bytesAvailable) {
-					var offsetByte:Number = (rawBytes.readFloat() * 100);
-					var offsetInt:int = int(offsetByte);
-					if (lastInt == offsetInt) {
-						byteString += "#";
-						lastInt = offsetInt;
-					} else {
-						lastInt = offsetInt;
-						if (offsetInt < 0) {
-							byteString += "!";
-							offsetInt *= -1;
-						}
-						if ((!isSending) && (offsetInt > 1)) {
-							isSending = true;
-						}
-						byteString += encoder[offsetInt];
-					}
-				}
+				var byteString:String = this.encodeAudio();
 				if (isSending) {
-					cycle++;
-					if (cycle == -1) {
-						cycle = 0;
-					} else {
-						this.fireRemoteEvent("playSound", byteString);
-/*						soundBytes = new ByteArray();
-						var currSign:int = 1;
-						var lastFloat:Number = 101;
-						for (var i:int = 0; i < byteString.length; i++) {
-							var char:String = byteString.charAt(i);
-							var currFloat:Number = 102;
-							if (char == "#") {
-								currFloat = lastFloat;
-							} else {
-								if (char == "!") {
-									currSign = -1;
-								} else {
-									currFloat = (currSign * decoder[char]);
-									currSign = 1;
-								}
-							}
-							if (currFloat < 101) {
-								soundBytes.writeFloat(currFloat);
-								lastFloat = currFloat;
-							}
-						}
-						soundBytes.position = 0;
-						sound.play();*/
-					}
-				} else {
-					cycle = 0;
+					this.fireRemoteEvent("playSound", byteString);
+/*					decodeAudio(byteString);
+					sound.play();*/
 				}
 			} else {
 				currBytes = new ByteArray();
@@ -236,28 +166,43 @@
 		
 		public function guestHandler(event:WidgetEvent) {
 			var dat:WidgetEventData = event.data;
+/*			var guestTimer:Timer = new Timer(guestInterval, 0);
+			guestTimer.addEventListener(TimerEvent.TIMER, updateGuest);*/
 			var activation:Boolean = dat.args as Boolean;
+			var username:String = dat.fromUser;
 			if (activation) {
-				var user:TextField = new TextField();
-				var meter:Sprite = new Sprite();
-				var iterPosns:Array = availablePosns;
-				var posn:Number = (iterPosns.length + 2) * 15;
-				for (var i:int = 1; i < iterPosns.length; i++) {
-					if (iterPosns[i]) {
-						availablePosns[i] = false;
-						posn = ((i + 1) * 15);
-						break;
-					}
-				}
-				generateUser(user, dat.fromUser, posn);
-				generateMeter(meter, dat.fromUser, posn);
+				addGuest(username);
 			} else {
-				var tf:TextField = getChildByName(dat.fromUser + "-text") as TextField;
-				var ix:int = ((tf.y / 15) - 1) as int
-				availablePosns[ix] = true;
-				removeChild(getChildByName(dat.fromUser + "-text"));
-				removeChild(getChildByName(dat.fromUser));
+				removeGuest(username);
 			}
+		}
+		
+		public function updateGuest(event:TimerEvent): void {
+			
+		}
+		
+		public function addGuest(username:String): void {
+			var user:TextField = new TextField();
+			var meter:Sprite = new Sprite();
+			var iterPosns:Array = availablePosns;
+			var posn:Number = (iterPosns.length + 2) * 15;
+			for (var i:int = 1; i < iterPosns.length; i++) {
+				if (iterPosns[i]) {
+					availablePosns[i] = false;
+					posn = ((i + 1) * 15);
+					break;
+				}
+			}
+			generateUser(user, username, posn);
+			generateMeter(meter, username, posn);
+		}
+		
+		public function removeGuest(username:String): void {
+			var tf:TextField = getChildByName(username + "-text") as TextField;
+			var ix:int = ((tf.y / 15) - 1) as int
+			availablePosns[ix] = true;
+			removeChild(getChildByName(username + "-text"));
+			removeChild(getChildByName(username));
 		}
 		
 		public function masterHandler(event:MouseEvent): void {
@@ -301,35 +246,67 @@
 		}
 		
 		public function streamingHandler(event:WidgetEvent) {
-			//this.debugIterations++;
 			var dat:WidgetEventData = event.data;
 			if ((!mutedUsers[dat.fromUser]) && (soundEnabled)) {
-				var receivedByteString:String = String(dat.args)
-				var receivedBytes = new ByteArray();
-				var currSign:int = 1;
-				var lastFloat:Number = 101;
-				for (var i:int = 0; i < receivedByteString.length; i++) {
-					var char:String = receivedByteString.charAt(i);
-					var currFloat:Number = 102;
-					if (char == "#") {
-						currFloat = lastFloat;
-					} else {
-						if (char == "!") {
-							currSign = -1;
-						} else {
-							currFloat = (currSign * decoder[char]);
-							currSign = 1;
-						}
-					}
-					if (currFloat < 101) {
-						receivedBytes.writeFloat(currFloat);
-						lastFloat = currFloat;
-					}
-				}
-				receivedBytes.position = 0;
-				soundBytes = receivedBytes;
+				var encodedAudio:String = String(dat.args);
+				decodeAudio(encodedAudio);
 				sound.play();
 			}
+		}
+		
+		public function encodeAudio(): String {
+			isSending = false;
+			var rawBytes:ByteArray = currBytes;
+			currBytes = new ByteArray();
+			rawBytes.position = 0;
+			var byteString:String = "";
+			var lastInt:int = 101;
+			while (rawBytes.bytesAvailable) {
+				var offsetByte:Number = (rawBytes.readFloat() * 100);
+				var offsetInt:int = int(offsetByte);
+				if (lastInt == offsetInt) {
+					byteString += "#";
+					lastInt = offsetInt;
+				} else {
+					lastInt = offsetInt;
+					if (offsetInt < 0) {
+						byteString += "!";
+						offsetInt *= -1;
+					}
+					if ((!isSending) && (offsetInt > 1)) {
+						isSending = true;
+					}
+					byteString += encoder[offsetInt];
+				}
+			}
+			return byteString;
+		}
+		
+		public function decodeAudio(encodedAudio:String): void {
+			var receivedByteString:String = encodedAudio;
+			var receivedBytes = new ByteArray();
+			var currSign:int = 1;
+			var lastFloat:Number = 101;
+			for (var i:int = 0; i < receivedByteString.length; i++) {
+				var char:String = receivedByteString.charAt(i);
+				var currFloat:Number = 102;
+				if (char == "#") {
+					currFloat = lastFloat;
+				} else {
+					if (char == "!") {
+						currSign = -1;
+					} else {
+						currFloat = (currSign * decoder[char]);
+						currSign = 1;
+					}
+				}
+				if (currFloat < 101) {
+					receivedBytes.writeFloat(currFloat);
+					lastFloat = currFloat;
+				}
+			}
+			receivedBytes.position = 0;
+			this.soundBytes = receivedBytes;
 		}
 		
 		public function generateUser(user:TextField, username:String, posn:Number): void {
