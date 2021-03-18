@@ -1,5 +1,6 @@
 ﻿package  {
 	
+	import flash.display.DisplayObject;
 	import flash.display.MovieClip;
 	import flash.display.Sprite;
 	
@@ -24,6 +25,7 @@
 	import flash.utils.ByteArray;
 	import flash.utils.Dictionary;
 	import flash.utils.Timer;
+	import flash.utils.setTimeout;
 	
 	import com.imvu.widget.ClientWidget;
 	import com.imvu.events.WidgetEvent;
@@ -33,6 +35,7 @@
 	public class Main extends ClientWidget {
 		
 		public var mic:Microphone;
+		public var micRate:int = 5;
 		public var sound:Sound = new Sound();
 		public var micEnabled:Boolean = false;
 		public var soundEnabled:Boolean = true;
@@ -45,15 +48,14 @@
 		
 		public var isSending:Boolean = false;
 		public var sendAudioTimer:Timer;
-		public var sendAudioInterval:Number = 300;		
-		public var guestInterval:Number = 1000;
+		public var sendAudioInterval:Number = 300;
 		
 		public var cycle:int = 0;
 		
 		public var currUsername:String = "Me";
-		public var currUserText:TextField = new TextField();
+		public var currText:TextField = new TextField();
 		public var currMeter:Sprite = new Sprite();
-
+		
 		public var mutedUsers:Dictionary = new Dictionary();
 		public var availablePosns:Array = new Array();
 		
@@ -64,22 +66,27 @@
 				availablePosns.push(true);
 			}
 			availablePosns[0] = false;
-			
 			var startPosn:Number = 15;
 			
 			if (this.space != null) {
 				currUsername = this.space.avatarName;
 			}
 			
-			generateUser(currUserText, currUsername, startPosn);
+			generateDecoder();
+			generateUser(currText, currUsername, startPosn);
 			generateMeter(currMeter, currUsername, startPosn);
 			generateMasterVolume();
 			
-			generateDecoder();
-			sound.addEventListener(SampleDataEvent.SAMPLE_DATA, playbackHandler);
-			
-			this.addEventListener("updateGuest", guestHandler);
-			this.addEventListener("playSound", streamingHandler);
+			sound.addEventListener(SampleDataEvent.SAMPLE_DATA, playback);
+			this.addEventListener("updateGuest", updateGuestUI);
+			this.addEventListener("playSound", stream);
+			//debug();
+		}
+		
+		public function debug(): void {
+			var username:String = "Raja";
+			addGuest(username);
+			setTimeout(removeGuest, 1000, username);
 		}
 		
 		public function startRecording(event:MouseEvent):void {
@@ -87,10 +94,10 @@
 			if (mic != null) {
 				event.target.removeEventListener(MouseEvent.CLICK, startRecording);
 				generateEncoder();
-				mic.rate = 5;
-				mic.addEventListener(SampleDataEvent.SAMPLE_DATA, micAudioHandler);
-				mic.addEventListener(ActivityEvent.ACTIVITY, micActivityHandler);
-				mic.addEventListener(StatusEvent.STATUS, micSetupHandler);
+				mic.rate = micRate;
+				mic.addEventListener(SampleDataEvent.SAMPLE_DATA, getAudio);
+				mic.addEventListener(ActivityEvent.ACTIVITY, updateGuest);
+				mic.addEventListener(StatusEvent.STATUS, permissions);
 				sendAudioTimer = new Timer(this.sendAudioInterval, 0);
 				sendAudioTimer.addEventListener(TimerEvent.TIMER, sendAudio);
 				sendAudioTimer.start();
@@ -99,26 +106,28 @@
 			}
 		}
 		
-		public function micSetupHandler(event:StatusEvent):void {
+		public function permissions(event:StatusEvent):void {
 			if (!mic.muted) {
 				getChildByName(currUsername).addEventListener(MouseEvent.CLICK, muteHandler);
 				getChildByName(currUsername).dispatchEvent(new MouseEvent(MouseEvent.CLICK));
 			}
 			micEnabled = !mic.muted;
 		}
+				
+		public function updateGuest(event:ActivityEvent): void {
+			if (event.activating) {
+				this.fireRemoteEvent("updateGuest", true);
+			}
+		}
 		
-		public function micAudioHandler(event:SampleDataEvent): void {
+		public function getAudio(event:SampleDataEvent): void {
 			var sample:Number = 0.0;
 			while (event.data.bytesAvailable) {
 				sample = event.data.readFloat();
 				currBytes.writeFloat(sample);
 			}
 		}
-		
-		public function micActivityHandler(event:ActivityEvent): void {
-			this.fireRemoteEvent("updateGuest", event.activating);
-		}
-		
+
 		public function sendAudio(event:TimerEvent): void {
 			if ((currBytes.length > 0) && (currBytes.length < 8193)) {
 				var byteString:String = this.encodeAudio();
@@ -132,7 +141,7 @@
 			}
 		}
 		
-		public function playbackHandler(event:SampleDataEvent): void {
+		public function playback(event:SampleDataEvent): void {
 			var playingBytes:ByteArray = soundBytes;
 			var samp:Number;
 			for (var i:int = 0; i < 1024 && playingBytes.bytesAvailable; i++) {
@@ -164,23 +173,19 @@
 			}
 		}
 		
-		public function guestHandler(event:WidgetEvent) {
-			var dat:WidgetEventData = event.data;
-/*			var guestTimer:Timer = new Timer(guestInterval, 0);
-			guestTimer.addEventListener(TimerEvent.TIMER, updateGuest);*/
+		public function updateGuestUI(event:WidgetEvent) {
+			var dat:WidgetEventData  = event.data;
 			var activation:Boolean = dat.args as Boolean;
-			var username:String = dat.fromUser;
+			var username:String = String(dat.fromUser);
+			var guest:DisplayObject = getChildByName(username);
 			if (activation) {
-				addGuest(username);
-			} else {
-				removeGuest(username);
+				if (guest == null) {
+					addGuest(username);
+				}
 			}
+			setTimeout(removeGuest, 2000, username);
 		}
-		
-		public function updateGuest(event:TimerEvent): void {
-			
-		}
-		
+				
 		public function addGuest(username:String): void {
 			var user:TextField = new TextField();
 			var meter:Sprite = new Sprite();
@@ -245,9 +250,10 @@
 			}
 		}
 		
-		public function streamingHandler(event:WidgetEvent) {
+		public function stream(event:WidgetEvent) {
 			var dat:WidgetEventData = event.data;
-			if ((!mutedUsers[dat.fromUser]) && (soundEnabled)) {
+			var username:String = dat.fromUser;
+			if ((!mutedUsers[username]) && (soundEnabled)) {
 				var encodedAudio:String = String(dat.args);
 				decodeAudio(encodedAudio);
 				sound.play();
@@ -330,13 +336,17 @@
 			if (!(username in mutedUsers)) {
 				mutedUsers[username] = false;
 			}
+			var newColor:ColorTransform = new ColorTransform();
 			if (username == currUsername) {
-				var newColor:ColorTransform = new ColorTransform();
 				newColor.color = 0x808080
 				voiceMeter.transform.colorTransform = newColor;
 				mutedUsers[username] = true;
 				voiceMeter.addEventListener(MouseEvent.CLICK, startRecording);
 			} else {
+				if (mutedUsers[username]) {
+					newColor.color = 0x808080;
+					voiceMeter.transform.colorTransform = newColor;
+				}
 				voiceMeter.addEventListener(MouseEvent.CLICK, muteHandler);
 			}
 		}
