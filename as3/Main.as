@@ -38,6 +38,7 @@
 		public var micRate:int = 5;
 		public var sound:Sound = new Sound();
 		public var micEnabled:Boolean = false;
+		public var recordingEnabled:Boolean = false;
 		public var soundEnabled:Boolean = true;
 		
 		public var currBytes:ByteArray = new ByteArray();
@@ -72,7 +73,7 @@
 				currUsername = this.space.avatarName;
 			}
 			
-			generateDecoder();
+			getDecoder();
 			generateUser(currText, currUsername, startPosn);
 			generateMeter(currMeter, currUsername, startPosn);
 			generateMasterVolume();
@@ -92,9 +93,10 @@
 		public function startRecording(event:MouseEvent):void {
 			mic = Microphone.getMicrophone(); 
 			if (mic != null) {
+				getEncoder();
 				event.target.removeEventListener(MouseEvent.CLICK, startRecording);
-				generateEncoder();
 				mic.rate = micRate;
+				mic.setUseEchoSuppression(true);
 				mic.addEventListener(SampleDataEvent.SAMPLE_DATA, getAudio);
 				mic.addEventListener(ActivityEvent.ACTIVITY, updateGuest);
 				mic.addEventListener(StatusEvent.STATUS, permissions);
@@ -110,6 +112,7 @@
 			if (!mic.muted) {
 				getChildByName(currUsername).addEventListener(MouseEvent.CLICK, muteHandler);
 				getChildByName(currUsername).dispatchEvent(new MouseEvent(MouseEvent.CLICK));
+				addLoopback();
 			}
 			micEnabled = !mic.muted;
 		}
@@ -351,7 +354,7 @@
 			}
 		}
 		
-		public function generateMasterVolume() {
+		public function generateMasterVolume(): void {
 			var master:Sprite = new Sprite();
 			var startPadding:int = leftPadding - 10;
 			master.name = "master_volume";
@@ -378,7 +381,33 @@
 			master.addEventListener(MouseEvent.CLICK, masterHandler);
 		}
 		
-		public function generateEncoder():void {
+		public function addLoopback(): void {
+			var recorder:Sprite = new Sprite();
+			var padding:int = leftPadding - 12;
+			recorder.graphics.beginFill(0xFA7F7F);
+			recorder.graphics.drawCircle(padding, 26, 3);
+			recorder.graphics.endFill();
+			recorder.name = "_recorder";
+			recorder.buttonMode = true;
+			addChild(recorder);
+			recorder.addEventListener(MouseEvent.CLICK, setLoopback);
+		}
+		
+		public function setLoopback(event:MouseEvent): void {
+			if (soundEnabled) {
+				recordingEnabled = !recordingEnabled
+				var newColor:ColorTransform = new ColorTransform();
+				if (recordingEnabled) {
+					newColor.color = 0xFA1B1B
+					mic.setLoopBack(true);
+				} else {
+					mic.setLoopBack(false);
+				}
+				event.target.transform.colorTransform = newColor;
+			}
+		}
+		
+		public function getEncoder(): void {
 			this.encoder = ["$", "%", "&", "'", "(", ")", "*", "+", ",", "-", 
 							".", "/", "0", "1", "2", "3", "4", "5", "6", "7", "8", 
 							"9", ":", ";", "<", "=", ">", "?", "@", "A", "B", "C", 
@@ -391,7 +420,7 @@
 							"©", "ª", "~"]
 		}
 		
-		public function generateDecoder():void {
+		public function getDecoder(): void {
 			this.decoder = {"$":0.0, "%":0.01, "&":0.02, "'":0.03, "(":0.04, ")":0.05, 
 							"*":0.06, "+":0.07, ",":0.08, "-":0.09, ".":0.1, "/":0.11, 
 							"0":0.12, "1":0.13, "2":0.14, "3":0.15, "4":0.16, "5":0.17, 
